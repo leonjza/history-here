@@ -53,6 +53,11 @@ function _history_here_set_global_history() {
 
 function _history_here_isolate_if_in_auto_change_dir() {
 
+    # do nothing, we are already isolating
+    if [[ $_history_here_is_global == false ]]; then
+        return
+    fi
+
     local _pwd=`pwd`
     for d in $HISTORY_HERE_AUTO_DIRS; do
         if [[ "$_pwd" =~ $d ]]; then
