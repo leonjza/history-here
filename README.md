@@ -6,7 +6,13 @@ An oh-my-zsh plugin that bind's `^G` to quickly toggle the current shell history
 plugins=(... history-here)
 ```
 
-The plugin source code needs to be in `~/.oh-my-zsh/plugins/` (either cloned there or symlinked).
+Alternatively, source the `history-here.plugin.zsh` file (after cloning) with:
+
+```zsh
+source ~/.oh-my-zsh/custom/plugins/history-here/history-here.plugin.zsh
+```
+
+The plugin source code needs to be in `~/.oh-my-zsh/custom/plugins` (either cloned there or symlinked).
 
 ## configuration
 
