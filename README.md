@@ -1,25 +1,40 @@
 # history-here
 
-An oh-my-zsh plugin that bind's `^G` to quickly toggle the current shell history file location. To use it, add `history-here` to the plugins array in your zshrc file.
+Zsh plugin that binds `^G` to quickly toggle the current shell history file location.
+
+## installation
+
+Oh My Zsh: clone or symlink this repo into `~/.oh-my-zsh/custom/plugins/history-here`, then add it to your plugins array:
 
 ```zsh
 plugins=(... history-here)
 ```
 
-Alternatively, source the `history-here.plugin.zsh` file (after cloning) with:
+Zim: add a zmodule entry to your `.zimrc`. It will be autodownloaded on next shell start, or you can run `zimfw install`/`zimfw update`:
 
 ```zsh
-source ~/.oh-my-zsh/custom/plugins/history-here/history-here.plugin.zsh
+zmodule leonjza/history-here
 ```
 
-The plugin source code needs to be in `~/.oh-my-zsh/custom/plugins` (either cloned there or symlinked).
+Manual source (after cloning):
+
+```zsh
+source /path/to/history-here/history-here.plugin.zsh
+```
 
 ## configuration
 
-You can configure automatic isolation of shell history by setting the `HISTORY_HERE_AUTO_DIRS` array. If the current working directory changes to any of the paths in this array (which is lazily matched), history isolation would automatically occur.
+You can configure automatic isolation of shell history by setting the `HISTORY_HERE_AUTO_DIRS` array. Entries are treated as prefixes for a single path component, and history is stored at the matched component root. This keeps history anchored to the project root even when you are in subdirectories or start a new shell there.
+
+Manual toggling with `^G` always uses the current directory (`$PWD`) so you can intentionally isolate history at any depth.
 
 ```zsh
-export HISTORY_HERE_AUTO_DIRS=(/Users/foo/work /root/work)
+export HISTORY_HERE_AUTO_DIRS=(/Users/foo/clients ~/work)
 ```
 
-Note, if you set a small value of something like `pa`, changing to any directory containing `pa` in the path would trigger history isolation.
+Examples:
+
+- `/Users/foo/clients/acme/another` uses `/Users/foo/clients/acme/.zsh_history`
+- `~/work/alpha/src` uses `~/work/alpha/.zsh_history`
+
+Note, if you set a small value of something like `pa`, any directory with a component starting with `pa` under the same parent directory would trigger history isolation.

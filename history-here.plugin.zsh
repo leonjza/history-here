@@ -10,10 +10,9 @@
 # variable $HISTORY_HERE_AUTO_DIRS for a
 # list of directories that should
 # automatically have its history isolated.
-# Matches are regex and checks if the pwd
-# *contains* a string from the list. For
-# this reason you should use the most 
-# absolute path possible.
+# Matches use prefix-on-component semantics.
+# If a match is found, history is stored in
+# the matched component's directory.
 #
 # Example:
 #   export HISTORY_HERE_AUTO_DIRS=(/Users/foo/work /root/test)
@@ -34,11 +33,11 @@ function history_here_toggle() {
 
 function _history_here_set_isolated_history() {
 
-    local _pwd=`pwd`
-    _current_histfile="$_pwd/$_hist_file_name"
+    local _root=${1:-$PWD}
+    _current_histfile="$_root/$_hist_file_name"
     print -n "${fg[blue]}Using isolated history in this directory.${reset_color}"
 
-    export HISTFILE=$_current_histfile
+    export HISTFILE="$_current_histfile"
     _history_here_is_global=false
 }
 
@@ -47,27 +46,63 @@ function _history_here_set_global_history() {
     print -n "${fg[green]}Using global history.${reset_color}"
     _current_histfile=""
 
-    export HISTFILE=$_master_histfile
+    export HISTFILE="$_master_histfile"
     _history_here_is_global=true
+}
+
+function _history_here_find_root_for_pwd() {
+
+    local _pwd=$PWD
+    local _root=""
+
+    for d in "${HISTORY_HERE_AUTO_DIRS[@]}"; do
+        local _dir=${~d}
+        _dir=${_dir%/}
+        if [[ -z "$_dir" ]]; then
+            continue
+        fi
+
+        local _parent="${_dir:h}"
+        local _prefix="${_dir:t}"
+
+        if [[ "$_pwd" != "$_parent"/* ]]; then
+            continue
+        fi
+
+        local _rest="${_pwd#${_parent}/}"
+        local _first="${_rest%%/*}"
+
+        if [[ "$_first" == ${_prefix}* ]]; then
+            if [[ "$_parent" == "/" ]]; then
+                _root="/$_first"
+            else
+                _root="$_parent/$_first"
+            fi
+            break
+        fi
+    done
+
+    print -r -- "$_root"
 }
 
 function _history_here_toggle_isolation_based_on_pwd() {
 
     local _in_isolated_dir=false
-    local _pwd=`pwd`
-
-    # Check if we are in a directory that should be isolated
-    for d in $HISTORY_HERE_AUTO_DIRS; do
-        if [[ "$_pwd" =~ $d ]]; then
-            _in_isolated_dir=true
-            break
-        fi
-    done
+    local _root="$(_history_here_find_root_for_pwd)"
+    local _target_histfile=""
+    if [[ -n "$_root" ]]; then
+        _in_isolated_dir=true
+        _target_histfile="$_root/$_hist_file_name"
+    fi
 
     # Decide if we need to toggle isolation.
     # If we are in an isolated directory and already
     # isolating, do nothing.
     if [[ $_in_isolated_dir == true && $_history_here_is_global == false ]]; then
+        if [[ "$_current_histfile" == "$_target_histfile" ]]; then
+            return
+        fi
+        _history_here_set_isolated_history "$_root"
         return
     fi
 
@@ -81,8 +116,8 @@ function _history_here_toggle_isolation_based_on_pwd() {
     # If we are now in a directory that should be isolated
     # but we are not yet isolating, do it.
     if [[ $_in_isolated_dir == true && $_history_here_is_global == true ]]; then
-        print "${fg[yellow]}In a history isolation directory:${reset_color} ${fg[green]}$d${reset_color}"
-        _history_here_set_isolated_history
+        print "${fg[yellow]}In a history isolation directory:${reset_color} ${fg[green]}$_root${reset_color}"
+        _history_here_set_isolated_history "$_root"
         return
     fi
 }
@@ -95,3 +130,6 @@ bindkey '^G' history_here_toggle
 # bind to cd, checking $HISTORY_HERE_AUTO_DIRS 
 autoload -U add-zsh-hook
 add-zsh-hook chpwd _history_here_toggle_isolation_based_on_pwd
+
+# Apply isolation immediately on startup, if needed.
+_history_here_toggle_isolation_based_on_pwd
