@@ -17,44 +17,100 @@
 # Example:
 #   export HISTORY_HERE_AUTO_DIRS=(/Users/foo/work /root/test)
 
-_master_histfile=$HISTFILE
-_hist_file_name=".zsh_history"
-_history_here_is_global=true
-_current_histfile=""
+_history_here_global_histfile=$HISTFILE
+_history_here_histfile_name=".zsh_history"
+_history_here_is_startup=true
+_history_here_is_isolated=false
+_history_here_last_auto_root=""
 
-function history_here_toggle() {
+autoload -Uz colors
+colors
 
-    if [[ $_history_here_is_global == true ]]; then
-       _history_here_set_isolated_history
-    else
-        _history_here_set_global_history
+function _history_here_notify() {
+
+    local _colored="$1"
+    print -P -- "$_colored"
+    if [[ -n "$ZLE" ]]; then
+        zle reset-prompt
     fi
 }
 
-function _history_here_set_isolated_history() {
+function _history_here_build_status() {
 
-    local _root=${1:-$PWD}
-    _current_histfile="$_root/$_hist_file_name"
-    print -n "${fg[blue]}Using isolated history in this directory.${reset_color}"
+    local _kind="$1"
+    local _path="$2"
+    local _icon=""
+    local _state=""
+    local _state_color=""
+    local _arrow="→"
 
-    export HISTFILE="$_current_histfile"
-    _history_here_is_global=false
+    case "$_kind" in
+        isolated)
+            _icon="✓"
+            _state="isolated"
+            _state_color="${fg_bold[green]}"
+            ;;
+        global)
+            _icon="↩"
+            _state="global"
+            _state_color="${fg_bold[yellow]}"
+            ;;
+    esac
+
+    if [[ -n "$_state" ]]; then
+        print -r -- "${fg[green]}${_icon}${reset_color} ${fg[cyan]}history${reset_color} ${_state_color}${_state}${reset_color} ${fg[blue]}${_arrow}${reset_color} ${fg[green]}$_path${reset_color}"
+    else
+        print -r -- "${fg[cyan]}history${reset_color} ${fg[blue]}${_arrow}${reset_color} ${fg[green]}$_path${reset_color}"
+    fi
 }
 
-function _history_here_set_global_history() {
+function history_here_toggle() {
 
-    print -n "${fg[green]}Using global history.${reset_color}"
-    _current_histfile=""
-
-    export HISTFILE="$_master_histfile"
-    _history_here_is_global=true
+    if [[ "$HISTFILE" == "$_history_here_global_histfile" ]]; then
+       _history_here_switch_history "isolated" "$PWD/$_history_here_histfile_name"
+    else
+        _history_here_switch_history "global" "$_history_here_global_histfile"
+    fi
 }
 
-function _history_here_find_root_for_pwd() {
+function _history_here_switch_history() {
+
+    local _kind="$1"
+    local _target_histfile="$2"
+    local _message="$(_history_here_build_status "$_kind" "$_target_histfile")"
+    _history_here_notify "$_message"
+
+    if [[ "$_kind" == "isolated" ]]; then
+        if [[ "$_history_here_is_isolated" == true ]]; then
+            fc -P 2>/dev/null
+        fi
+        if ! fc -p "$_target_histfile" 2>/dev/null; then
+            _history_here_notify "history: failed to push history list"
+            return 1
+        fi
+        if ! fc -R "$_target_histfile" 2>/dev/null; then
+            _history_here_notify "history: failed to read history file"
+            return 1
+        fi
+        _history_here_is_isolated=true
+    else
+        if [[ "$_history_here_is_isolated" == true ]]; then
+            fc -P 2>/dev/null
+        fi
+        _history_here_is_isolated=false
+    fi
+
+    if [[ -n "$_target_histfile" ]]; then
+        export HISTFILE="$_target_histfile"
+    fi
+}
+
+function _history_here_find_auto_root() {
 
     local _pwd=$PWD
     local _root=""
 
+    # Match "prefix on component": /parent/prefix matches /parent/prefix* (first path component only).
     for d in "${HISTORY_HERE_AUTO_DIRS[@]}"; do
         local _dir=${~d}
         _dir=${_dir%/}
@@ -85,51 +141,60 @@ function _history_here_find_root_for_pwd() {
     print -r -- "$_root"
 }
 
-function _history_here_toggle_isolation_based_on_pwd() {
+function _history_here_resolve_auto_root() {
 
-    local _in_isolated_dir=false
-    local _root="$(_history_here_find_root_for_pwd)"
-    local _target_histfile=""
-    if [[ -n "$_root" ]]; then
-        _in_isolated_dir=true
-        _target_histfile="$_root/$_hist_file_name"
+    local _root=""
+    if (( ${#HISTORY_HERE_AUTO_DIRS[@]} == 0 )); then
+        _history_here_last_auto_root=""
+        print -r -- ""
+        return
     fi
 
-    # Decide if we need to toggle isolation.
-    # If we are in an isolated directory and already
-    # isolating, do nothing.
-    if [[ $_in_isolated_dir == true && $_history_here_is_global == false ]]; then
-        if [[ "$_current_histfile" == "$_target_histfile" ]]; then
-            return
+    if [[ -n "$_history_here_last_auto_root" ]]; then
+        if [[ "$PWD" == "$_history_here_last_auto_root" || "$PWD" == "$_history_here_last_auto_root"/* ]]; then
+            _root="$_history_here_last_auto_root"
         fi
-        _history_here_set_isolated_history "$_root"
-        return
     fi
 
-    # If we were in an isolated directory, but have since
-    # moved out of one, return to using global history
-    if [[ $_in_isolated_dir == false && $_history_here_is_global == false ]]; then
-        _history_here_set_global_history
-        return
+    if [[ -z "$_root" ]]; then
+        _root="$(_history_here_find_auto_root)"
+        _history_here_last_auto_root="$_root"
     fi
 
-    # If we are now in a directory that should be isolated
-    # but we are not yet isolating, do it.
-    if [[ $_in_isolated_dir == true && $_history_here_is_global == true ]]; then
-        print "${fg[yellow]}In a history isolation directory:${reset_color} ${fg[green]}$_root${reset_color}"
-        _history_here_set_isolated_history "$_root"
-        return
+    print -r -- "$_root"
+}
+
+function _history_here_auto_switch_for_pwd() {
+
+    local _on_startup=$_history_here_is_startup
+    _history_here_is_startup=false
+    local _kind="global"
+    local _root="$(_history_here_resolve_auto_root)"
+    local _target_histfile="$_history_here_global_histfile"
+    if [[ -n "$_root" ]]; then
+        _kind="isolated"
+        _target_histfile="$_root/$_history_here_histfile_name"
+    fi
+
+    local _did_switch=false
+    if [[ "$HISTFILE" != "$_target_histfile" ]]; then
+        _history_here_switch_history "$_kind" "$_target_histfile"
+        _did_switch=true
+    fi
+
+    if [[ "$_on_startup" == true && "$_kind" == "isolated" && "$_did_switch" == false ]]; then
+        local _message="$(_history_here_build_status "$_kind" "$_target_histfile")"
+        _history_here_notify "$_message"
     fi
 }
 
 # bind the toggle
-autoload -Uz history_here_toggle
 zle -N history_here_toggle
 bindkey '^G' history_here_toggle
 
 # bind to cd, checking $HISTORY_HERE_AUTO_DIRS 
 autoload -U add-zsh-hook
-add-zsh-hook chpwd _history_here_toggle_isolation_based_on_pwd
+add-zsh-hook chpwd _history_here_auto_switch_for_pwd
 
 # Apply isolation immediately on startup, if needed.
-_history_here_toggle_isolation_based_on_pwd
+_history_here_auto_switch_for_pwd
